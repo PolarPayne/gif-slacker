@@ -15,6 +15,10 @@ height_re = re.compile(rb"height=(\d+)")
 
 
 class Optimizer:
+
+    LOSSY_MIN = 0
+    LOSSY_MAX = 200
+
     def __init__(self, video_file: Path, *, dir: Path = None):
         self.video_file = video_file
 
@@ -100,13 +104,6 @@ class Optimizer:
         return output_file
 
     def _to_gif(self, fps: int, size: int, lossy: int) -> t.Tuple[Path, int]:
-        if not (1 <= fps <= self.fps):
-            raise ValueError(f"fps must be between 1 and {self.fps}")
-        if not (1 <= size <= self.width):
-            raise ValueError(f"size must be between 1 and {self.width}")
-        if not (0 <= lossy <= 200):
-            raise ValueError(f"lossy must be between 0 and 200")
-
         created_file = self._to_gif_ffmpeg(fps, size)
 
         output_file = self.tmp / self._file_name(fps, size, lossy)
@@ -129,16 +126,30 @@ class Optimizer:
     def optimize(
         self,
         output_file: str,
+        *,
         max_size: int,
-        fps: int,
-        size: int,
-        lossy: t.Tuple[int, int],
-        prefer=None,
+        fps_min: int,
+        size_min: int,
+        lossy_min: int,
+        lossy_max: int,
     ) -> int:
+        if max_size <= 0:
+            raise ValueError("max_size must be larger than zero")
+        if not (1 <= fps_min <= self.fps):
+            raise ValueError(f"fps must be between 1 and {self.fps} (inclusive)")
+        if not (1 <= size_min <= self.width):
+            raise ValueError(f"size must be between 1 and {self.width} (inclusive)")
+        if not (0 <= lossy_min <= 200):
+            raise ValueError(f"lossy_min must be between {self.LOSSY_MIN} and {self.LOSSY_MAX} (inclusive)")
+        if not (0 <= lossy_max <= 200):
+            raise ValueError(f"lossy_max must be between {self.LOSSY_MIN} and {self.LOSSY_MAX} (inclusive)")
+        if lossy_min > lossy_max:
+            raise ValueError("lossy_min must be less than or equal to lossy_max")
+
         vs = values(
-            MinMax(fps, self.fps),
-            MinMax(size, self.width),
-            MinMax(0, lossy),
+            MinMax(fps_min, self.fps),
+            MinMax(size_min, self.width),
+            MinMax(lossy_min, lossy_max),
         )
 
         try:
