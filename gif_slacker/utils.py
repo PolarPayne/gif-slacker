@@ -14,11 +14,14 @@ def parse_bytes(size: str) -> int:
     return int(number) * units[unit.lower()]
 
 
-def percent(v: str) -> float:
+class Percent(float): pass
+
+
+def percent(v: str) -> Percent:
     if not v.endswith("%"):
         raise ValueError("percent value must end with a '%'")
 
-    return float(v[:-1]) / 100
+    return Percent(float(v[:-1]) / 100)
 
 
 time_re = re.compile(r"(\d+)([smh])", re.IGNORECASE)
@@ -36,15 +39,28 @@ def time(v: str) -> int:
 def bounded(
     f: t.Callable[[str], t.Union[int, float]],
     *,
-    min:t.Optional[float]=None,
-    max:t.Optional[float]=None
+    min: t.Optional[float]=None,
+    max: t.Optional[float]=None,
+    min_gt: t.Optional[float]=None,
+    max_lt: t.Optional[float]=None,
 ) -> t.Callable[[str], t.Union[int, float]]:
+    if min is not None and min_gt is not None:
+        raise ValueError("cannot use min and min_gt at the same time")
+    if max is not None and max_lt is not None:
+        raise ValueError("cannot use max and max_lt at the same time")
+
     def inner(v: str) -> t.Union[int, float]:
         parsed = f(v)
         if min is not None and parsed < min:
             raise ValueError(f"parsed value must be at least {min} but it was {parsed}")
+        if min_gt is not None and parsed <= min_gt:
+            raise ValueError(f"parsed value must be larger than {min_gt} but it was {parsed}")
+
         if max is not None and parsed > max:
             raise ValueError(f"parsed value must be at most {max} but it was {parsed}")
+        if max_lt is not None and parsed >= max_lt:
+            raise ValueError(f"parsed value must be smaller than {max_lt} but it was {parsed}")
+
         return parsed
 
     return inner

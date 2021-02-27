@@ -1,8 +1,9 @@
 import argparse
 import sys
 from shutil import which
+from decimal import Decimal
 
-from .utils import parse_bytes, percent, bounded, one_of, time
+from .utils import parse_bytes, percent, bounded, one_of, time, Percent
 from .optimizer import Optimizer
 
 
@@ -29,22 +30,23 @@ def do_video_to_gif(args: argparse.Namespace) -> int:
             print(f"fps:  {o.fps:>5}")
             return 0
 
+
         fps_min, fps_max = args.fps_min, args.fps_max
-        if type(fps_min) is float:
-            fps_min = max(1, int(o.fps * fps_min))
-        if type(fps_max) is float:
-            fps_max = max(1, int(o.fps * fps_max))
+        if type(fps_min) is Percent:
+            fps_min = o.fps * fps_min
+        if type(fps_max) is Percent:
+            fps_max = o.fps * fps_max
 
         size_min, size_max = args.size_min, args.size_max
-        if type(size_min) is float:
-            size_min = max(1, int(o.width * size_min))
-        if type(size_max) is float:
-            size_max = max(1, int(o.width * size_max))
+        if type(size_min) is Percent:
+            size_min = int(o.width * size_min)
+        if type(size_max) is Percent:
+            size_max = int(o.width * size_max)
 
         lossy_min, lossy_max = args.lossy_min, args.lossy_max
-        if type(lossy_min) is float:
+        if type(lossy_min) is Percent:
             lossy_min = int(o.LOSSY_MAX * lossy_min)
-        if type(lossy_max) is float:
+        if type(lossy_max) is Percent:
             lossy_max = int(o.LOSSY_MAX * lossy_max)
 
         return o.optimize(
@@ -79,19 +81,21 @@ def main() -> int:
     video_to_gif.add_argument(
         "--fps-min",
         type=one_of(
-            bounded(percent, min=0, max=1),
+            bounded(percent, min_gt=0, max=1),
             bounded(int, min=1),
+            bounded(float, min_gt=0)
         ),
-        default=0.0,
+        default=1,
         help="minimum fps of output gif"
     )
     video_to_gif.add_argument(
         "--fps-max",
         type=one_of(
-            bounded(percent, min=0, max=1),
+            bounded(percent, min_gt=0, max=1),
             bounded(int, min=1),
+            bounded(float, min_gt=0)
         ),
-        default=1.0,
+        default=Percent(1.0),
         help="maximum fps of output gif"
     )
 

@@ -55,7 +55,7 @@ class Optimizer:
         if fps is None:
             print(stdout, file=sys.stderr)
             raise ValueError("could not get fps of the video")
-        self.fps = ceil(int(fps[1]) / int(fps[2]))
+        self.fps = int(fps[1]) / int(fps[2])
 
         width = width_re.search(stdout)
         if width is None:
@@ -133,7 +133,7 @@ class Optimizer:
             "-i",
             self.palette,
             "-lavfi",
-            f"fps={fps},scale={size}:-1:flags=lanczos,paletteuse",
+            f"fps={fps:.2f},scale={size}:-1:flags=lanczos,paletteuse",
             "-loop",
             "0",
             output_file_tmp,
@@ -184,15 +184,15 @@ class Optimizer:
         if output_size_limit <= 0:
             raise ValueError("output_size_limit must be larger than zero")
 
-        if not (1 <= fps_min <= self.fps):
-            raise ValueError(f"fps_min must be between 1 and {self.fps} (inclusive)")
-        if not (1 <= fps_max <= self.fps):
-            raise ValueError(f"fps_max must be between 1 and {self.fps} (inclusive)")
+        if not (0 < fps_min <= self.fps):
+            raise ValueError(f"fps_min must be larger than 0 and at most {self.fps}")
+        if not (0 < fps_max <= self.fps):
+            raise ValueError(f"fps_max must be larger than 0 and at most {self.fps}")
         if fps_min > fps_max:
             raise ValueError("fps_min must be less than or equal to fps_max")
 
         if not (1 <= size_min <= self.width):
-            raise ValueError(f"size must be between 1 and {self.width} (inclusive)")
+            raise ValueError(f"size_min must be between 1 and {self.width} (inclusive)")
         if not (1 <= size_max <= self.width):
             raise ValueError(f"size_max must be between 1 and {self.width} (inclusive)")
         if size_min > size_max:
@@ -205,19 +205,26 @@ class Optimizer:
         if lossy_min > lossy_max:
             raise ValueError("lossy_min must be less than or equal to lossy_max")
 
+        print(
+            "trying to find the optimal values for the follwing parameters within these ranges",
+            f"fps   = {fps_min:>5.2f} .. {fps_max:<5.2f}",
+            f"size  = {size_min:>5} .. {size_max:<5}",
+            f"lossy = {lossy_min:>5} .. {lossy_max:<5}",
+            sep="\n\t"
+        )
+
         if fps_max < self.fps or size_max < self.width:
             self._create_intermediate(fps_max, size_max)
 
         self._create_palette()
 
         def objective(trial: optuna.Trial) -> float:
-            fps = trial.suggest_int("fps", fps_min, fps_max)
+            fps = trial.suggest_float("fps", fps_min, fps_max)
             size = trial.suggest_int("size", size_min, size_max, log=True)
             lossy = trial.suggest_int("lossy", lossy_min, lossy_max)
 
             _, size = self._to_gif(fps, size, lossy)
             if size > output_size_limit:
-                # raise optuna.TrialPruned()
                 return output_size_limit + (size - output_size_limit)
 
             # fps should affect file size linearly
