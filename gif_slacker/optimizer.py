@@ -1,12 +1,14 @@
 import tempfile
 import re
 import typing as t
+import secrets
 import sys
 from pathlib import Path
 from math import ceil
 
+import optuna
+
 from .cmd import cmd
-from .value_generator import MinMax, values, UnsatisfiableConstraints
 
 
 fps_re = re.compile(rb"r_frame_rate=(\d+)/(\d+)")
@@ -65,6 +67,9 @@ class Optimizer:
             raise ValueError("could not get height of the video")
         self.height = int(height[1])
 
+    def _temp_file(self) -> Path:
+        return self.tmp / f"{secrets.token_urlsafe()}.gif"
+
     def _file_name(self, fps, size, lossy=None) -> str:
         if lossy is None:
             return f"{fps}-{size}.gif"
@@ -99,6 +104,7 @@ class Optimizer:
 
         cmd(
             "ffmpeg",
+            "-y",
             "-i",
             self.video_file,
             "-vf",
@@ -107,7 +113,7 @@ class Optimizer:
             check=True,
         )
 
-    def _to_gif_ffmpeg(self, fps: int, size: int):
+    def _to_gif_ffmpeg(self, fps: int, size: int) -> Path:
         input_file = self.video_file
         if self.intermediate.exists():
             input_file = self.intermediate
@@ -116,9 +122,12 @@ class Optimizer:
         if output_file.exists():
             return output_file
 
+        output_file_tmp = self._temp_file()
+
         # TODO better error handling
         cmd(
             "ffmpeg",
+            "-y",
             "-i",
             input_file,
             "-i",
@@ -127,10 +136,11 @@ class Optimizer:
             f"fps={fps},scale={size}:-1:flags=lanczos,paletteuse",
             "-loop",
             "0",
-            output_file,
+            output_file_tmp,
             check=True,
         )
 
+        output_file_tmp.rename(output_file)
         return output_file
 
     def _to_gif(self, fps: int, size: int, lossy: int) -> t.Tuple[Path, int]:
@@ -140,6 +150,8 @@ class Optimizer:
         if output_file.exists():
             return output_file, output_file.stat().st_size
 
+        output_file_tmp = self._temp_file()
+
         # TODO better error handling
         cmd(
             "gifsicle",
@@ -147,10 +159,11 @@ class Optimizer:
             f"--lossy={lossy}",
             created_file,
             "-o",
-            output_file,
+            output_file_tmp,
             check=True,
         )
 
+        output_file_tmp.rename(output_file)
         return output_file, output_file.stat().st_size
 
     def optimize(
@@ -164,6 +177,9 @@ class Optimizer:
         size_max: int,
         lossy_min: int,
         lossy_max: int,
+        trials: t.Optional[int],
+        timeout: t.Optional[int],
+        jobs: int,
     ) -> int:
         if output_size_limit <= 0:
             raise ValueError("output_size_limit must be larger than zero")
@@ -194,44 +210,56 @@ class Optimizer:
 
         self._create_palette()
 
-        vs = values(
-            MinMax(fps_min, fps_max),
-            MinMax(size_min, size_max),
-            MinMax(lossy_min, lossy_max),
-        )
+        def objective(trial: optuna.Trial) -> float:
+            fps = trial.suggest_int("fps", fps_min, fps_max)
+            size = trial.suggest_int("size", size_min, size_max, log=True)
+            lossy = trial.suggest_int("lossy", lossy_min, lossy_max)
+
+            _, size = self._to_gif(fps, size, lossy)
+            if size > output_size_limit:
+                # raise optuna.TrialPruned()
+                return output_size_limit + (size - output_size_limit)
+
+            # fps should affect file size linearly
+            dist_fps = delta(fps_min, fps_max, fps)
+
+            # image size should affect file size exponentially
+            dist_size = delta(size_min, size_max, size)
+            dist_size **= 0.75
+
+            # compression is likely to affect file size logarithmically
+            dist_lossy = 1.0 - delta(lossy_min, lossy_max, lossy)
+            dist_lossy **= 2.5
+
+            dist = dist_fps + dist_size + dist_lossy
+
+            if dist == 0:
+                return float("inf")
+
+            return (output_size_limit - size) / dist
+
+        study = optuna.create_study()
 
         try:
-            v = next(vs)
-            while True:
-                fps, size, lossy = v.fps, v.size, v.lossy
-                print(f"generating a gif with options {fps=} {size=} {lossy=}")
-                _, size = self._to_gif(fps, size, lossy)
-                print(f"generated files size is {size} bytes", file=sys.stderr)
+            print(f"starting optimization with {trials=} {timeout=}")
+            study.optimize(objective, n_trials=trials, timeout=timeout, n_jobs=jobs)
+        except KeyboardInterrupt:
+            print("user stopped optimization")
 
-                if size > output_size_limit:
-                    print(
-                        "generated file was larger than the max size", file=sys.stderr
-                    )
-                    v = vs.send(False)
-                else:
-                    print(
-                        "generated file was smaller than the max size", file=sys.stderr
-                    )
-                    v = vs.send(True)
+        best = study.best_params
+        fps, size, lossy = best["fps"], best["size"], best["lossy"]
+        print(f"best results came with {fps=} {size=} {lossy=}")
 
-        except StopIteration as v:
-            best = v.value
+        best_gif = self.tmp / self._file_name(fps, size, lossy)
+        if best_gif.stat().st_size > output_size_limit:
+            print("best generated gif is larger than the output size limit")
+        best_gif.rename(output_file)
 
-            fps, size, lossy = best.fps, best.size, best.lossy
-            print(
-                f"best options found were {fps=} {size=} {lossy=}",
-                file=sys.stderr,
-            )
-            p = self.tmp / self._file_name(fps, size, lossy)
-            p.rename(output_file)
+        return 0
 
-            return 0
 
-        except UnsatisfiableConstraints:
-            print("no options could generate a small enough gif", file=sys.stderr)
-            return 1
+def delta(min: int, max: int, x: int) -> float:
+    div = abs(min - max)
+    if div == 0:
+        return 1.0
+    return abs(min - x) / div

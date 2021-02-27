@@ -21,6 +21,18 @@ def percent(v: str) -> float:
     return float(v[:-1]) / 100
 
 
+time_re = re.compile(r"(\d+)([smh])", re.IGNORECASE)
+time_units = {"s": 1, "m": 60, "h": 60*60}
+
+
+def time(v: str) -> int:
+    m = time_re.fullmatch(v)
+    if m is None:
+        raise ValueError("time value must have one of the following units s, m, h")
+    number, unit = m[1], m[2]
+    return int(number) * time_units[unit.lower()]
+
+
 def bounded(
     f: t.Callable[[str], t.Union[int, float]],
     *,

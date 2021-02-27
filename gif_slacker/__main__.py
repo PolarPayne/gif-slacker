@@ -1,7 +1,7 @@
 import argparse
 import sys
 
-from .utils import parse_bytes, percent, bounded, one_of
+from .utils import parse_bytes, percent, bounded, one_of, time
 from .optimizer import Optimizer
 
 
@@ -38,7 +38,10 @@ def do_video_to_gif(args: argparse.Namespace) -> int:
             size_min=size_min,
             size_max=size_max,
             lossy_min=lossy_min,
-            lossy_max=lossy_max
+            lossy_max=lossy_max,
+            trials=args.trials,
+            timeout=args.timeout,
+            jobs=args.jobs,
         )
 
 
@@ -107,6 +110,25 @@ def main() -> int:
         ),
         default=200,
         help="maximum value for compression"
+    )
+
+    video_to_gif.add_argument(
+        "--trials", "-n",
+        type=int,
+        default=None,
+        help="number of trials to run, if not set the optimization will run until stopped"
+    )
+    video_to_gif.add_argument(
+        "--timeout", "-t",
+        type=time,
+        default=None,
+        help="maximum time to run the optimization for"
+    )
+    video_to_gif.add_argument(
+        "--jobs", "-j",
+        type=int,
+        default=1,
+        help="number of jobs to run during optimization (set to -1 to use the number of cores)"
     )
 
     video_to_gif.add_argument(
