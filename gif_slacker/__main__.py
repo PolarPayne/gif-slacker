@@ -1,8 +1,25 @@
 import argparse
 import sys
+from shutil import which
 
 from .utils import parse_bytes, percent, bounded, one_of, time
 from .optimizer import Optimizer
+
+
+def tools() -> bool:
+    if which("ffmpeg") is None:
+        print("could not find ffmpeg from path")
+        return False
+
+    if which("ffprobe") is None:
+        print("could not find ffprobe from path")
+        return False
+
+    if which("gifsicle") is None:
+        print("could not find gifsicle from path")
+        return False
+
+    return True
 
 
 def do_video_to_gif(args: argparse.Namespace) -> int:
@@ -46,6 +63,10 @@ def do_video_to_gif(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    ok = tools()
+    if not ok:
+        return 3
+
     # fmt: off
     parser = argparse.ArgumentParser()
     parser.set_defaults(_do=None)
