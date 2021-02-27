@@ -24,8 +24,8 @@ class Optimizer:
 
         self.tmp = Path(tempfile.mkdtemp(dir=dir))
         self.palette = self.tmp / "palette.png"
+        self.intermediate = self.tmp / "intermediate.avi"
 
-        self._create_palette()
         self._update_fps_and_size()
 
     def __enter__(self):
@@ -34,17 +34,6 @@ class Optimizer:
     def __exit__(self, type, value, traceback):
         for file in self.tmp.glob("*.gif"):
             file.unlink()
-
-    def _create_palette(self):
-        cmd(
-            "ffmpeg",
-            "-i",
-            self.video_file,
-            "-vf",
-            "palettegen",
-            self.palette,
-            check=True,
-        )
 
     def _update_fps_and_size(self) -> t.Tuple[int, int]:
         _, stdout, _ = cmd(
@@ -81,7 +70,48 @@ class Optimizer:
             return f"{fps}-{size}.gif"
         return f"{fps}-{size}-{lossy}.gif"
 
+    def _create_palette(self):
+        if self.palette.exists():
+            return
+
+        input_file = self.video_file
+        if self.intermediate.exists():
+            input_file = self.intermediate
+
+        print("generating palette")
+
+        cmd(
+            "ffmpeg",
+            "-i",
+            input_file,
+            "-vf",
+            "palettegen",
+            self.palette,
+            check=True,
+        )
+
+    def _create_intermediate(self, fps: int, size: int):
+        output_file = self.intermediate
+        if output_file.exists():
+            return output_file
+
+        print("creating intermediate file for faster processing")
+
+        cmd(
+            "ffmpeg",
+            "-i",
+            self.video_file,
+            "-vf",
+            f"fps={fps},scale={size}:-1:flags=lanczos",
+            output_file,
+            check=True,
+        )
+
     def _to_gif_ffmpeg(self, fps: int, size: int):
+        input_file = self.video_file
+        if self.intermediate.exists():
+            input_file = self.intermediate
+
         output_file = self.tmp / self._file_name(fps, size)
         if output_file.exists():
             return output_file
@@ -90,7 +120,7 @@ class Optimizer:
         cmd(
             "ffmpeg",
             "-i",
-            self.video_file,
+            input_file,
             "-i",
             self.palette,
             "-lavfi",
@@ -127,18 +157,31 @@ class Optimizer:
         self,
         output_file: str,
         *,
-        max_size: int,
+        output_size_limit: int,
         fps_min: int,
+        fps_max: int,
         size_min: int,
+        size_max: int,
         lossy_min: int,
         lossy_max: int,
     ) -> int:
-        if max_size <= 0:
-            raise ValueError("max_size must be larger than zero")
+        if output_size_limit <= 0:
+            raise ValueError("output_size_limit must be larger than zero")
+
         if not (1 <= fps_min <= self.fps):
-            raise ValueError(f"fps must be between 1 and {self.fps} (inclusive)")
+            raise ValueError(f"fps_min must be between 1 and {self.fps} (inclusive)")
+        if not (1 <= fps_max <= self.fps):
+            raise ValueError(f"fps_max must be between 1 and {self.fps} (inclusive)")
+        if fps_min > fps_max:
+            raise ValueError("fps_min must be less than or equal to fps_max")
+
         if not (1 <= size_min <= self.width):
             raise ValueError(f"size must be between 1 and {self.width} (inclusive)")
+        if not (1 <= size_max <= self.width):
+            raise ValueError(f"size_max must be between 1 and {self.width} (inclusive)")
+        if size_min > size_max:
+            raise ValueError("size_min must be less than or equal to size_max")
+
         if not (0 <= lossy_min <= 200):
             raise ValueError(f"lossy_min must be between {self.LOSSY_MIN} and {self.LOSSY_MAX} (inclusive)")
         if not (0 <= lossy_max <= 200):
@@ -146,9 +189,14 @@ class Optimizer:
         if lossy_min > lossy_max:
             raise ValueError("lossy_min must be less than or equal to lossy_max")
 
+        if fps_max < self.fps or size_max < self.width:
+            self._create_intermediate(fps_max, size_max)
+
+        self._create_palette()
+
         vs = values(
-            MinMax(fps_min, self.fps),
-            MinMax(size_min, self.width),
+            MinMax(fps_min, fps_max),
+            MinMax(size_min, size_max),
             MinMax(lossy_min, lossy_max),
         )
 
@@ -160,7 +208,7 @@ class Optimizer:
                 _, size = self._to_gif(fps, size, lossy)
                 print(f"generated files size is {size} bytes", file=sys.stderr)
 
-                if size > max_size:
+                if size > output_size_limit:
                     print(
                         "generated file was larger than the max size", file=sys.stderr
                     )
@@ -185,5 +233,5 @@ class Optimizer:
             return 0
 
         except UnsatisfiableConstraints:
-            print("no options can generate small enough gif", file=sys.stderr)
+            print("no options could generate a small enough gif", file=sys.stderr)
             return 1

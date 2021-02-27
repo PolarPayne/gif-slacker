@@ -8,6 +8,8 @@ units = {"b": 1, "kb": 10 ** 3, "mb": 10 ** 6, "gb": 10 ** 9}
 
 def parse_bytes(size: str) -> int:
     m = units_re.fullmatch(size)
+    if m is None:
+        raise ValueError("bytes value must have one of the following units b, kb, mb, or gb")
     number, unit = m[1], m[2]
     return int(number) * units[unit.lower()]
 
@@ -28,9 +30,9 @@ def bounded(
     def inner(v: str) -> t.Union[int, float]:
         parsed = f(v)
         if min is not None and parsed < min:
-            raise ValueError("")
+            raise ValueError(f"parsed value must be at least {min} but it was {parsed}")
         if max is not None and parsed > max:
-            raise ValueError("")
+            raise ValueError(f"parsed value must be at most {max} but it was {parsed}")
         return parsed
 
     return inner

@@ -1,6 +1,6 @@
 import sys
 import typing as t
-from math import floor, log
+from math import floor, sqrt
 from collections import namedtuple
 
 MinMax = namedtuple("MinMax", ["min", "max"])
@@ -11,48 +11,38 @@ class UnsatisfiableConstraints(Exception):
     pass
 
 
+def delta(mima: MinMax, x: int) -> float:
+    div = abs(mima.min - mima.max)
+    if div == 0:
+        return 1.0
+    return abs(mima.min - x) / div
+
+
 def values(fps: MinMax, size: MinMax, lossy: MinMax) -> t.Generator[Vals, bool, Vals]:
-    m = Vals(fps.max, size.max, lossy.min, 1)
-    print(f"yielding the maximum options", file=sys.stderr)
-    ok = yield m
-    if ok:
-        return m
-
     found_params = []
-
-    m = Vals(fps.min, size.min, lossy.max, 0)
-    print(f"yielding the minimum options", file=sys.stderr)
-    found_params.append(m)
-    ok = yield m
-    if not ok:
-        print(f"minimum options did not generate a small enough gif", file=sys.stderr)
-        raise UnsatisfiableConstraints()
-
-    delta_lossy = abs(lossy.max - lossy.min)
-
     vals = []
+
     for fps_ in range(fps.min, fps.max + 1):
         for size_ in range(size.min, size.max + 1):
             for lossy_ in range(lossy.min, lossy.max + 1):
                 # fps should affect file size linearly
-                dist_fps = fps_ / fps.max
-                # assert 0 <= dist_fps <= 1, f"{dist_fps=}"
+                dist_fps = delta(fps, fps_)
 
                 # image size should affect file size exponentially
-                d_size = size_ / size.max
-                dist_size = pow(2, d_size) - 1
-                # assert 0 <= dist_size <= 1, f"{dist_size=}"
+                dist_size = delta(size, size_)
+                dist_size **= 0.5
 
                 # compression is likely to affect file size logarithmically
-                cor = abs((lossy.min + lossy_) - 200)
-                dist_lossy = 0 if cor == 0 else pow(cor / delta_lossy, 0.5)
-                # assert 0 <= dist_lossy <= 1, f"{dist_lossy=}"
+                dist_lossy = abs(1 - delta(lossy, lossy_))
+                dist_lossy **= 2.0
+
+                dist = dist_fps + dist_size + dist_lossy
 
                 m = Vals(
                     fps_,
                     size_,
                     lossy_,
-                    (dist_fps ** 2 + dist_size ** 2 + dist_lossy ** 2) ** (1 / 3),
+                    dist,
                 )
                 vals.append(m)
 
@@ -67,5 +57,8 @@ def values(fps: MinMax, size: MinMax, lossy: MinMax) -> t.Generator[Vals, bool, 
             found_params.append(m)
         else:
             vals = vals[median:]
+
+    if not found_params:
+        raise UnsatisfiableConstraints()
 
     return found_params[-1]
