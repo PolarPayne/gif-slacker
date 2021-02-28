@@ -248,14 +248,14 @@ class Optimizer:
         study = optuna.create_study()
 
         try:
-            print(f"starting optimization with {trials=} {timeout=}")
+            print(f"starting optimization with {trials=} {timeout=} {jobs=}")
             study.optimize(objective, n_trials=trials, timeout=timeout, n_jobs=jobs)
         except KeyboardInterrupt:
             print("user stopped optimization")
 
         best = study.best_params
         fps, size, lossy = best["fps"], best["size"], best["lossy"]
-        print(f"best results came with {fps=} {size=} {lossy=}")
+        print(f"best results came with {fps=:.2f} {size=} {lossy=}")
 
         best_gif = self.tmp / self._file_name(fps, size, lossy)
         if best_gif.stat().st_size > output_size_limit:
