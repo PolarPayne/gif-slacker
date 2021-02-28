@@ -225,7 +225,7 @@ class Optimizer:
 
             _, size = self._to_gif(fps, size, lossy)
             if size > output_size_limit:
-                return output_size_limit + (size - output_size_limit)
+                return output_size_limit + (size - output_size_limit) ** 2
 
             # fps should affect file size linearly
             dist_fps = delta(fps_min, fps_max, fps)
@@ -243,7 +243,7 @@ class Optimizer:
             if dist == 0:
                 return float("inf")
 
-            return (output_size_limit - size) / dist
+            return (1 + output_size_limit - size) / dist
 
         study = optuna.create_study()
 
