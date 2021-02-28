@@ -114,7 +114,7 @@ def main() -> int:
             bounded(percent, min=0, max=1),
             bounded(int, min=1),
         ),
-        default=1.0,
+        default=Percent(1.0),
         help="maximum width of output gif"
     )
 
